@@ -72,7 +72,7 @@ CREATE TABLE `{tableName}` (
                 if ($scatterValue > 30) {
                     return [
                         'write' => 'w1',
-                        'read' => 'r1',
+                        'read' => 'r1', //可以是数组，多个会随机找一个 e.g. array('r1', 'r2')
                     ];
 				} else {
                     return [
