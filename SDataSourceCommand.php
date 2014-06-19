@@ -486,4 +486,406 @@ class SDataSourceCommand extends CComponent
             $sql.=' WHERE '.$where;
         return $this->setText($sql)->execute($params);
     }
+
+    public function delete($conditions='', $params=array())
+    {
+        $sql='DELETE FROM ' . $this->_connection->quoteTableName($this->tableName);
+        if(($where=$this->processConditions($conditions))!='')
+            $sql.=' WHERE '.$where;
+        return $this->setText($sql)->execute($params);
+    }
+    /**
+     * Generates the condition string that will be put in the WHERE part
+     * @param mixed $conditions the conditions that will be put in the WHERE part.
+     * @throws CDbException if unknown operator is used
+     * @return string the condition string to put in the WHERE part
+     */
+    private function processConditions($conditions)
+    {
+        if(!is_array($conditions))
+            return $conditions;
+        elseif($conditions===array())
+            return '';
+        $n=count($conditions);
+        $operator=strtoupper($conditions[0]);
+        if($operator==='OR' || $operator==='AND')
+        {
+            $parts=array();
+            for($i=1;$i<$n;++$i)
+            {
+                $condition=$this->processConditions($conditions[$i]);
+                if($condition!=='')
+                    $parts[]='('.$condition.')';
+            }
+            return $parts===array() ? '' : implode(' '.$operator.' ', $parts);
+        }
+
+        if(!isset($conditions[1],$conditions[2]))
+            return '';
+
+        $column=$conditions[1];
+        if(strpos($column,'(')===false)
+            $column=$this->_connection->quoteColumnName($column);
+
+        $values=$conditions[2];
+        if(!is_array($values))
+            $values=array($values);
+
+        if($operator==='IN' || $operator==='NOT IN')
+        {
+            if($values===array())
+                return $operator==='IN' ? '0=1' : '';
+            foreach($values as $i=>$value)
+            {
+                if(is_string($value))
+                    $values[$i]=$this->_connection->quoteValue($value);
+                else
+                    $values[$i]=(string)$value;
+            }
+            return $column.' '.$operator.' ('.implode(', ',$values).')';
+        }
+
+        if($operator==='LIKE' || $operator==='NOT LIKE' || $operator==='OR LIKE' || $operator==='OR NOT LIKE')
+        {
+            if($values===array())
+                return $operator==='LIKE' || $operator==='OR LIKE' ? '0=1' : '';
+
+            if($operator==='LIKE' || $operator==='NOT LIKE')
+                $andor=' AND ';
+            else
+            {
+                $andor=' OR ';
+                $operator=$operator==='OR LIKE' ? 'LIKE' : 'NOT LIKE';
+            }
+            $expressions=array();
+            foreach($values as $value)
+                $expressions[]=$column.' '.$operator.' '.$this->_connection->quoteValue($value);
+            return implode($andor,$expressions);
+        }
+
+        throw new CDbException(Yii::t('yii', 'Unknown operator "{operator}".', array('{operator}'=>$operator)));
+    }
+
+    /**
+     * Sets the GROUP BY part of the query.
+     * @param mixed $columns the columns to be grouped by.
+     * Columns can be specified in either a string (e.g. "id, name") or an array (e.g. array('id', 'name')).
+     * The method will automatically quote the column names unless a column contains some parenthesis
+     * (which means the column contains a DB expression).
+     * @return static the command object itself
+     * @since 1.1.6
+     */
+    public function group($columns)
+    {
+        if(is_string($columns) && strpos($columns,'(')!==false)
+            $this->_query['group']=$columns;
+        else
+        {
+            if(!is_array($columns))
+                $columns=preg_split('/\s*,\s*/',trim($columns),-1,PREG_SPLIT_NO_EMPTY);
+            foreach($columns as $i=>$column)
+            {
+                if(is_object($column))
+                    $columns[$i]=(string)$column;
+                elseif(strpos($column,'(')===false)
+                    $columns[$i]=$this->_connection->quoteColumnName($column);
+            }
+            $this->_query['group']=implode(', ',$columns);
+        }
+        return $this;
+    }
+
+    /**
+     * Returns the GROUP BY part in the query.
+     * @return string the GROUP BY part (without 'GROUP BY' ) in the query.
+     * @since 1.1.6
+     */
+    public function getGroup()
+    {
+        return isset($this->_query['group']) ? $this->_query['group'] : '';
+    }
+
+    /**
+     * Sets the GROUP BY part in the query.
+     * @param mixed $value the GROUP BY part. Please refer to {@link group()} for details
+     * on how to specify this parameter.
+     * @since 1.1.6
+     */
+    public function setGroup($value)
+    {
+        $this->group($value);
+    }
+
+    /**
+     * Sets the HAVING part of the query.
+     * @param mixed $conditions the conditions to be put after HAVING.
+     * Please refer to {@link where} on how to specify conditions.
+     * @param array $params the parameters (name=>value) to be bound to the query
+     * @return static the command object itself
+     * @since 1.1.6
+     */
+    public function having($conditions, $params=array())
+    {
+        $this->_query['having']=$this->processConditions($conditions);
+        foreach($params as $name=>$value)
+            $this->params[$name]=$value;
+        return $this;
+    }
+
+    /**
+     * Returns the HAVING part in the query.
+     * @return string the HAVING part (without 'HAVING' ) in the query.
+     * @since 1.1.6
+     */
+    public function getHaving()
+    {
+        return isset($this->_query['having']) ? $this->_query['having'] : '';
+    }
+
+    /**
+     * Sets the HAVING part in the query.
+     * @param mixed $value the HAVING part. Please refer to {@link having()} for details
+     * on how to specify this parameter.
+     * @since 1.1.6
+     */
+    public function setHaving($value)
+    {
+        $this->having($value);
+    }
+
+    /**
+     * Sets the ORDER BY part of the query.
+     * @param mixed $columns the columns (and the directions) to be ordered by.
+     * Columns can be specified in either a string (e.g. "id ASC, name DESC") or an array (e.g. array('id ASC', 'name DESC')).
+     * The method will automatically quote the column names unless a column contains some parenthesis
+     * (which means the column contains a DB expression).
+     *
+     * For example, to get "ORDER BY 1" you should use
+     *
+     * <pre>
+     * $criteria->order('(1)');
+     * </pre>
+     *
+     * @return static the command object itself
+     * @since 1.1.6
+     */
+    public function order($columns)
+    {
+        if(is_string($columns) && strpos($columns,'(')!==false)
+            $this->_query['order']=$columns;
+        else
+        {
+            if(!is_array($columns))
+                $columns=preg_split('/\s*,\s*/',trim($columns),-1,PREG_SPLIT_NO_EMPTY);
+            foreach($columns as $i=>$column)
+            {
+                if(is_object($column))
+                    $columns[$i]=(string)$column;
+                elseif(strpos($column,'(')===false)
+                {
+                    if(preg_match('/^(.*?)\s+(asc|desc)$/i',$column,$matches))
+                        $columns[$i]=$this->_connection->quoteColumnName($matches[1]).' '.strtoupper($matches[2]);
+                    else
+                        $columns[$i]=$this->_connection->quoteColumnName($column);
+                }
+            }
+            $this->_query['order']=implode(', ',$columns);
+        }
+        return $this;
+    }
+
+    /**
+     * Returns the ORDER BY part in the query.
+     * @return string the ORDER BY part (without 'ORDER BY' ) in the query.
+     * @since 1.1.6
+     */
+    public function getOrder()
+    {
+        return isset($this->_query['order']) ? $this->_query['order'] : '';
+    }
+
+    /**
+     * Sets the ORDER BY part in the query.
+     * @param mixed $value the ORDER BY part. Please refer to {@link order()} for details
+     * on how to specify this parameter.
+     * @since 1.1.6
+     */
+    public function setOrder($value)
+    {
+        $this->order($value);
+    }
+
+    /**
+     * Sets the LIMIT part of the query.
+     * @param integer $limit the limit
+     * @param integer $offset the offset
+     * @return static the command object itself
+     * @since 1.1.6
+     */
+    public function limit($limit, $offset=null)
+    {
+        $this->_query['limit']=(int)$limit;
+        if($offset!==null)
+            $this->offset($offset);
+        return $this;
+    }
+
+    /**
+     * Returns the LIMIT part in the query.
+     * @return string the LIMIT part (without 'LIMIT' ) in the query.
+     * @since 1.1.6
+     */
+    public function getLimit()
+    {
+        return isset($this->_query['limit']) ? $this->_query['limit'] : -1;
+    }
+
+    /**
+     * Sets the LIMIT part in the query.
+     * @param integer $value the LIMIT part. Please refer to {@link limit()} for details
+     * on how to specify this parameter.
+     * @since 1.1.6
+     */
+    public function setLimit($value)
+    {
+        $this->limit($value);
+    }
+
+    /**
+     * Sets the OFFSET part of the query.
+     * @param integer $offset the offset
+     * @return static the command object itself
+     * @since 1.1.6
+     */
+    public function offset($offset)
+    {
+        $this->_query['offset']=(int)$offset;
+        return $this;
+    }
+
+    /**
+     * Returns the OFFSET part in the query.
+     * @return string the OFFSET part (without 'OFFSET' ) in the query.
+     * @since 1.1.6
+     */
+    public function getOffset()
+    {
+        return isset($this->_query['offset']) ? $this->_query['offset'] : -1;
+    }
+
+    /**
+     * Sets the OFFSET part in the query.
+     * @param integer $value the OFFSET part. Please refer to {@link offset()} for details
+     * on how to specify this parameter.
+     * @since 1.1.6
+     */
+    public function setOffset($value)
+    {
+        $this->offset($value);
+    }
+
+    /**
+     * Sets the SELECT part of the query with the DISTINCT flag turned on.
+     * This is the same as {@link select} except that the DISTINCT flag is turned on.
+     * @param mixed $columns the columns to be selected. See {@link select} for more details.
+     * @return CDbCommand the command object itself
+     * @since 1.1.6
+     */
+    public function selectDistinct($columns='*')
+    {
+        $this->_query['distinct']=true;
+        return $this->select($columns);
+    }
+
+    /**
+     * Returns a value indicating whether SELECT DISTINCT should be used.
+     * @return boolean a value indicating whether SELECT DISTINCT should be used.
+     * @since 1.1.6
+     */
+    public function getDistinct()
+    {
+        return isset($this->_query['distinct']) ? $this->_query['distinct'] : false;
+    }
+
+    /**
+     * Sets a value indicating whether SELECT DISTINCT should be used.
+     * @param boolean $value a value indicating whether SELECT DISTINCT should be used.
+     * @since 1.1.6
+     */
+    public function setDistinct($value)
+    {
+        $this->_query['distinct']=$value;
+    }
+
+    /**
+     * Binds a parameter to the SQL statement to be executed.
+     * @param mixed $name Parameter identifier. For a prepared statement
+     * using named placeholders, this will be a parameter name of
+     * the form :name. For a prepared statement using question mark
+     * placeholders, this will be the 1-indexed position of the parameter.
+     * @param mixed $value Name of the PHP variable to bind to the SQL statement parameter
+     * @param integer $dataType SQL data type of the parameter. If null, the type is determined by the PHP type of the value.
+     * @param integer $length length of the data type
+     * @param mixed $driverOptions the driver-specific options (this is available since version 1.1.6)
+     * @return static the current command being executed
+     * @see http://www.php.net/manual/en/function.PDOStatement-bindParam.php
+     */
+    public function bindParam($name, &$value, $dataType=null, $length=null, $driverOptions=null)
+    {
+        $this->prepare();
+        if($dataType===null)
+            $this->_statement->bindParam($name,$value,$this->_connection->getPdoType(gettype($value)));
+        elseif($length===null)
+            $this->_statement->bindParam($name,$value,$dataType);
+        elseif($driverOptions===null)
+            $this->_statement->bindParam($name,$value,$dataType,$length);
+        else
+            $this->_statement->bindParam($name,$value,$dataType,$length,$driverOptions);
+        $this->_paramLog[$name]=&$value;
+        return $this;
+    }
+
+    /**
+     * Binds a value to a parameter.
+     * @param mixed $name Parameter identifier. For a prepared statement
+     * using named placeholders, this will be a parameter name of
+     * the form :name. For a prepared statement using question mark
+     * placeholders, this will be the 1-indexed position of the parameter.
+     * @param mixed $value The value to bind to the parameter
+     * @param integer $dataType SQL data type of the parameter. If null, the type is determined by the PHP type of the value.
+     * @return static the current command being executed
+     * @see http://www.php.net/manual/en/function.PDOStatement-bindValue.php
+     */
+    public function bindValue($name, $value, $dataType=null)
+    {
+        $this->prepare();
+        if($dataType===null)
+            $this->_statement->bindValue($name,$value,$this->_connection->getPdoType(gettype($value)));
+        else
+            $this->_statement->bindValue($name,$value,$dataType);
+        $this->_paramLog[$name]=$value;
+        return $this;
+    }
+
+    /**
+     * Binds a list of values to the corresponding parameters.
+     * This is similar to {@link bindValue} except that it binds multiple values.
+     * Note that the SQL data type of each value is determined by its PHP type.
+     * @param array $values the values to be bound. This must be given in terms of an associative
+     * array with array keys being the parameter names, and array values the corresponding parameter values.
+     * For example, <code>array(':name'=>'John', ':age'=>25)</code>.
+     * @return static the current command being executed
+     * @since 1.1.5
+     */
+    public function bindValues($values)
+    {
+        $this->prepare();
+        foreach($values as $name=>$value)
+        {
+            $this->_statement->bindValue($name,$value,$this->_connection->getPdoType(gettype($value)));
+            $this->_paramLog[$name]=$value;
+        }
+        return $this;
+    }
+
 }
